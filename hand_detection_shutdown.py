@@ -1,140 +1,138 @@
 import mediapipe as mp
 import cv2
-import os
 import keyboard
+import time
+
+# Ejecutar este script con privilegios de Administrador.
 
 # Inicializar MediaPipe Hands y Drawing
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
 
-# Captura de video desde cámara
+# Captura de vídeo
 cap = cv2.VideoCapture(0)
 
-# Banderas globales
-saludo_realizado = False
+# Estados y cooldown
 mano_agarrando = False
 ventana_movilizada = False
+last_move_time = 0
+MOVE_COOLDOWN = 1.0  # segundos
 
-# === FUNCIONES PARA GESTOS ===
+
+# --- GESTOS ---
 
 def mano_cerrada(hand_landmarks):
+    """Devuelve True si todos los dedos estan doblados."""
     return (
-        hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x < hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP].x and
-        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_PIP].y
+        hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x <
+        hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP].x
+        and all(
+            hand_landmarks.landmark[t].y > hand_landmarks.landmark[t - 2].y
+            for t in (
+                mp_hands.HandLandmark.INDEX_FINGER_TIP,
+                mp_hands.HandLandmark.MIDDLE_FINGER_TIP,
+                mp_hands.HandLandmark.RING_FINGER_TIP,
+                mp_hands.HandLandmark.PINKY_TIP,
+            )
+        )
     )
+
 
 def mano_apuntando_derecha(hand_landmarks):
+    """Indice extendido, resto de dedos doblados, pulgar hacia la izquierda."""
     return (
-        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y < hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x < hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP].x
+        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y <
+        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y
+        and all(
+            hand_landmarks.landmark[t].y > hand_landmarks.landmark[t - 2].y
+            for t in (
+                mp_hands.HandLandmark.MIDDLE_FINGER_TIP,
+                mp_hands.HandLandmark.RING_FINGER_TIP,
+                mp_hands.HandLandmark.PINKY_TIP,
+            )
+        )
+        and hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x <
+        hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP].x
     )
+
 
 def mano_apuntando_izquierda(hand_landmarks):
+    """Indice extendido, resto de dedos doblados, pulgar hacia la derecha."""
     return (
-        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y < hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].y > hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_PIP].y and
-        hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x > hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP].x
+        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y <
+        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y
+        and all(
+            hand_landmarks.landmark[t].y > hand_landmarks.landmark[t - 2].y
+            for t in (
+                mp_hands.HandLandmark.MIDDLE_FINGER_TIP,
+                mp_hands.HandLandmark.RING_FINGER_TIP,
+                mp_hands.HandLandmark.PINKY_TIP,
+            )
+        )
+        and hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x >
+        hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP].x
     )
 
-def ok_gesture(hand_landmarks):
-    thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
-    index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
-    distancia = ((thumb_tip.x - index_tip.x) ** 2 + (thumb_tip.y - index_tip.y) ** 2) ** 0.5
-    dedos_juntos = distancia < 0.05
 
-    middle_extended = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP].y < hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_PIP].y
-    ring_extended = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP].y < hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_PIP].y
-    pinky_extended = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].y < hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_PIP].y
+# --- MOVIMIENTO DE VENTANA ---
 
-    return dedos_juntos and middle_extended and ring_extended and pinky_extended
+def mover_ventana_derecha():
+    """Envía la ventana activa al monitor derecho."""
+    keyboard.press_and_release('win+shift+right')
+    time.sleep(0.2)
 
-def shutdown_gesture(index_tip, index_pip, middle_tip, middle_pip, ring_tip, ring_pip, pinky_tip, pinky_pip):
-    return (middle_tip < middle_pip and index_tip > index_pip and ring_tip > ring_pip and pinky_tip > pinky_pip)
 
-def minimice_gesture(index_tip, index_pip, middle_tip, middle_pip, ring_tip, ring_pip, pinky_tip, pinky_pip):
-    return (middle_tip > middle_pip and index_tip > index_pip and ring_tip > ring_pip and pinky_tip > pinky_pip)
+def mover_ventana_izquierda():
+    """Envía la ventana activa al monitor izquierdo."""
+    keyboard.press_and_release('win+shift+left')
+    time.sleep(0.2)
 
-def mostrar_escritorio():
-    keyboard.press('windows')
-    keyboard.press_and_release('d')
-    keyboard.release('windows')
 
-# === BUCLE PRINCIPAL ===
-with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5, max_num_hands=1) as hands:
+# --- BUCLE PRINCIPAL ---
+with mp_hands.Hands(
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5,
+    max_num_hands=1,
+) as hands:
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
         frame = cv2.flip(frame, 1)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(frame_rgb)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(rgb)
 
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                now = time.time()
 
-                index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y
-                index_pip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y
-                middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP].y
-                middle_pip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_PIP].y
-                ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP].y
-                ring_pip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_PIP].y
-                pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].y
-                pinky_pip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_PIP].y
-
-                # === DETECCIÓN DE GESTO DE "AGARRAR Y MOVER VENTANA" ===
                 if mano_cerrada(hand_landmarks) and not mano_agarrando:
                     mano_agarrando = True
                     ventana_movilizada = False
-                    cv2.putText(frame, "Mano cerrada (agarrando)", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 255), 2)
+                    cv2.putText(frame, "Agarrando ventana...", (30, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
                 elif mano_agarrando and not ventana_movilizada:
-                    if mano_apuntando_derecha(hand_landmarks):
-                        keyboard.press('windows')
-                        keyboard.press_and_release('right')
-                        keyboard.release('windows')
+                    if mano_apuntando_derecha(hand_landmarks) and now - last_move_time > MOVE_COOLDOWN:
+                        mover_ventana_derecha()
                         ventana_movilizada = True
                         mano_agarrando = False
-                        cv2.putText(frame, "Mover derecha", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                        last_move_time = now
+                        cv2.putText(frame, "Movido → derecha", (30, 100),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 0), 2)
 
-                    elif mano_apuntando_izquierda(hand_landmarks):
-                        keyboard.press('windows')
-                        keyboard.press('ctrl')
-                        keyboard.press_and_release('left')
-                        keyboard.release('ctrl')
-                        keyboard.release('windows')
+                    elif mano_apuntando_izquierda(hand_landmarks) and now - last_move_time > MOVE_COOLDOWN:
+                        mover_ventana_izquierda()
                         ventana_movilizada = True
                         mano_agarrando = False
-                        cv2.putText(frame, "Mover izquierda", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                        last_move_time = now
+                        cv2.putText(frame, "Movido ← izquierda", (30, 100),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 0), 2)
 
-                # === OTROS GESTOS ===
-                if ok_gesture(hand_landmarks):
-                    cv2.putText(frame, "Saludo OK (Circulo)", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-                elif shutdown_gesture(index_tip, index_pip, middle_tip, middle_pip, ring_tip, ring_pip, pinky_tip, pinky_pip):
-                    cv2.putText(frame, "Saludo Shutdown", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    # os.system("shutdown /s /t 1")  # Precaución
-
-                elif minimice_gesture(index_tip, index_pip, middle_tip, middle_pip, ring_tip, ring_pip, pinky_tip, pinky_pip):
-                    cv2.putText(frame, "Saludo Minimizar", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
-                    if not saludo_realizado:
-                        #mostrar_escritorio()
-                        saludo_realizado = True
-                else:
-                    saludo_realizado = False
-                    cv2.putText(frame, "No Saludo", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (128, 128, 128), 2)
-
-        cv2.imshow("Boton con MediaPipe", frame)
-
+        cv2.imshow("Control de ventanas con la mano", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
