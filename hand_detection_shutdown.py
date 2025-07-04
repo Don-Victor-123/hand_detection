@@ -99,18 +99,22 @@ with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5, m
 
                 elif mano_agarrando and not ventana_movilizada:
                     if mano_apuntando_derecha(hand_landmarks):
+                        # Mover la ventana activa al monitor derecho
                         keyboard.press('windows')
+                        keyboard.press('shift')
                         keyboard.press_and_release('right')
+                        keyboard.release('shift')
                         keyboard.release('windows')
                         ventana_movilizada = True
                         mano_agarrando = False
                         cv2.putText(frame, "Mover derecha", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
                     elif mano_apuntando_izquierda(hand_landmarks):
+                        # Mover la ventana activa al monitor izquierdo
                         keyboard.press('windows')
-                        keyboard.press('ctrl')
+                        keyboard.press('shift')
                         keyboard.press_and_release('left')
-                        keyboard.release('ctrl')
+                        keyboard.release('shift')
                         keyboard.release('windows')
                         ventana_movilizada = True
                         mano_agarrando = False
