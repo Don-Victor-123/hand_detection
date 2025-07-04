@@ -2,6 +2,7 @@ import mediapipe as mp
 import cv2
 import os
 import keyboard
+import time
 
 # Inicializar MediaPipe Hands y Drawing
 mp_hands = mp.solutions.hands
@@ -14,6 +15,10 @@ cap = cv2.VideoCapture(0)
 saludo_realizado = False
 mano_agarrando = False
 ventana_movilizada = False
+
+# Control de frecuencia para evitar movimientos repetidos por error
+last_move_time = 0
+MOVE_COOLDOWN = 1.0  # segundos
 
 # === FUNCIONES PARA GESTOS ===
 
@@ -67,6 +72,22 @@ def mostrar_escritorio():
     keyboard.press_and_release('d')
     keyboard.release('windows')
 
+# Utilidades para mover la ventana activa entre monitores.
+def mover_ventana_derecha():
+    """Mueve la ventana actual a la pantalla de la derecha y la maximiza."""
+    keyboard.press_and_release('windows+shift+right')
+    time.sleep(0.2)
+    keyboard.press_and_release('windows+up')
+    time.sleep(0.2)
+
+
+def mover_ventana_izquierda():
+    """Mueve la ventana actual a la pantalla de la izquierda y la maximiza."""
+    keyboard.press_and_release('windows+shift+left')
+    time.sleep(0.2)
+    keyboard.press_and_release('windows+up')
+    time.sleep(0.2)
+
 # === BUCLE PRINCIPAL ===
 with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5, max_num_hands=1) as hands:
     while cap.isOpened():
@@ -98,22 +119,21 @@ with mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5, m
                     cv2.putText(frame, "Mano cerrada (agarrando)", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (100, 255, 255), 2)
 
                 elif mano_agarrando and not ventana_movilizada:
-                    if mano_apuntando_derecha(hand_landmarks):
-                        keyboard.press('windows')
-                        keyboard.press_and_release('right')
-                        keyboard.release('windows')
+                    now = time.time()
+                    if mano_apuntando_derecha(hand_landmarks) and now - last_move_time > MOVE_COOLDOWN:
+                        # Mover la ventana activa a la siguiente pantalla
+                        mover_ventana_derecha()
                         ventana_movilizada = True
                         mano_agarrando = False
+                        last_move_time = now
                         cv2.putText(frame, "Mover derecha", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
-                    elif mano_apuntando_izquierda(hand_landmarks):
-                        keyboard.press('windows')
-                        keyboard.press('ctrl')
-                        keyboard.press_and_release('left')
-                        keyboard.release('ctrl')
-                        keyboard.release('windows')
+                    elif mano_apuntando_izquierda(hand_landmarks) and now - last_move_time > MOVE_COOLDOWN:
+                        # Mover la ventana activa a la pantalla previa
+                        mover_ventana_izquierda()
                         ventana_movilizada = True
                         mano_agarrando = False
+                        last_move_time = now
                         cv2.putText(frame, "Mover izquierda", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
                 # === OTROS GESTOS ===
